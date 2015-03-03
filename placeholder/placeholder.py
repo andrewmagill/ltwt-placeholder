@@ -21,8 +21,11 @@ settings.configure(
   ),
 )
 
+from io import BytesIO
+from PIL import Image, ImageDraw, ImageFont
 from django import forms
 from django.conf.urls import url
+from django.core.cache import cache
 from django.core.wsgi import get_wsgi_application
 from django.http import HttpResponse, HttpResponseBadRequest
 
@@ -31,14 +34,45 @@ class ImageForm(forms.Form):
   
   height = forms.IntegerField(min_value=1, max_value=2000)
   width = forms.IntegerField(min_value=1, max_value=2000)
+  
+  def generate(self, image_format='PNG'):
+    """Generate an image of the given type and return as raw bytes."""
+    height = self.cleaned_data['height']
+    width = self.cleaned_data['width']
+    fontsize = 1
+    # portion of image width you want text width to be
+    img_fraction = 0.80
+    
+    key = '{}.{}.{}'.format(width, height, image_format)    
+    content = cache.get(key)
+    if content is None:      
+      image = Image.new('RGB', (width, height), "gray")
+      draw = ImageDraw.Draw(image)
+      text = '{} X {}'.format(width, height)            
+      
+      # scale the text
+      font = ImageFont.truetype("fonts/SourceSansPro-Regular.ttf", fontsize)
+      while font.getsize(text)[0] < img_fraction*image.size[0]:
+        fontsize += 1
+        font = ImageFont.truetype("fonts/SourceSansPro-Regular.ttf", fontsize)
+      
+      textwidth, textheight = font.getsize(text)
+      if textwidth < width and textheight < height:
+        texttop = ((height - textheight) // 2) - (textheight // 2)
+        textleft = ((width - textwidth) // 2)
+        draw.text((textleft, texttop), text, font=font, fill=(150, 255, 255))
+        
+      content = BytesIO()
+      image.save(content, image_format)
+      content.seek(0)
+      cache.set(key, content, 60 * 60)
+    return content
 
 def placeholder(request, width, height):
   form = ImageForm({'height': height,'width': width})
   if form.is_valid():
-    height = form.cleaned_data['height']
-    width = form.cleaned_data['width']
-    # TODO: Generate image of requested size
-    return HttpResponse('ok')
+    image = form.generate()
+    return HttpResponse(image, content_type='image/png')
   else:
     return HttpResponseBadRequest('Invalid Image Request')
 
