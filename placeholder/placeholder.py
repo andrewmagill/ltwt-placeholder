@@ -1,5 +1,6 @@
 import os
 import sys
+import math
 
 from django.conf import settings
 
@@ -10,10 +11,10 @@ SECRET_KEY = os.environ.get('SECRET_KEY')
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost').split(',')
 
 settings.configure(
-  DEBUG=DEBUG, 
+  DEBUG=DEBUG,
   SECRET_KEY=SECRET_KEY,
   ALLOWED_HOSTS=ALLOWED_HOSTS,
-  ROOT_URLCONF=__name__, 
+  ROOT_URLCONF=__name__,
   MIDDLEWARE_CLASSES=(
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
@@ -31,37 +32,40 @@ from django.http import HttpResponse, HttpResponseBadRequest
 
 class ImageForm(forms.Form):
   """Form to validate requested placeholder image."""
-  
+
   height = forms.IntegerField(min_value=1, max_value=2000)
   width = forms.IntegerField(min_value=1, max_value=2000)
-  
+
   def generate(self, image_format='PNG'):
     """Generate an image of the given type and return as raw bytes."""
     height = self.cleaned_data['height']
     width = self.cleaned_data['width']
-    fontsize = 1
-    # portion of image width you want text width to be
-    img_fraction = 0.80
-    
-    key = '{}.{}.{}'.format(width, height, image_format)    
+
+    key = '{}.{}.{}'.format(width, height, image_format)
     content = cache.get(key)
-    if content is None:      
+    if content is None:
       image = Image.new('RGB', (width, height), "gray")
       draw = ImageDraw.Draw(image)
-      text = '{} X {}'.format(width, height)            
-      
-      # scale the text
+      text = '{} X {}'.format(width, height)
+      image_size = math.sqrt(image.size[0] * image.size[1])
+      fontsize = math.floor(image_size / 4)
       font = ImageFont.truetype("fonts/SourceSansPro-Regular.ttf", fontsize)
-      while font.getsize(text)[0] < img_fraction*image.size[0]:
-        fontsize += 1
-        font = ImageFont.truetype("fonts/SourceSansPro-Regular.ttf", fontsize)
-      
       textwidth, textheight = font.getsize(text)
-      if textwidth < width and textheight < height:
-        texttop = ((height - textheight) // 2) - (textheight // 2)
-        textleft = ((width - textwidth) // 2)
-        draw.text((textleft, texttop), text, font=font, fill=(150, 255, 255))
-        
+
+      if textwidth > width:
+          fontsize = math.floor(image.size[0] / 4)
+          font = ImageFont.truetype("fonts/SourceSansPro-Regular.ttf", fontsize)
+          textwidth, textheight = font.getsize(text)
+      elif textheight > height:
+          fontsize = math.floor(image.size[1] / 4)
+          font = ImageFont.truetype("fonts/SourceSansPro-Regular.ttf", fontsize)
+          textwidth, textheight = font.getsize(text)
+
+      texttop = (height / 2) - (textheight / 1.4)# - (height * 0.04)
+      textleft = (width / 2) - (textwidth / 1.9)
+
+      draw.text((textleft, texttop), text, font=font, fill=(150, 255, 255))
+
       content = BytesIO()
       image.save(content, image_format)
       content.seek(0)
@@ -88,5 +92,5 @@ application = get_wsgi_application()
 
 if __name__ == "__main__":
   from django.core.management import execute_from_command_line
-  
+
   execute_from_command_line(sys.argv)
