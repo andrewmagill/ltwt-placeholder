@@ -1,6 +1,7 @@
 import os
 import sys
 import math
+import hashlib
 
 from django.conf import settings
 
@@ -9,6 +10,8 @@ DEBUG = os.environ.get('DEBUG', 'on') == 'on'
 SECRET_KEY = os.environ.get('SECRET_KEY')
 
 ALLOWED_HOSTS = os.environ.get('ALLOWED_HOSTS', 'localhost').split(',')
+
+BASE_DIR = os.path.dirname(__file__)
 
 settings.configure(
   DEBUG=DEBUG,
@@ -20,6 +23,16 @@ settings.configure(
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
   ),
+  INSTALLED_APPS=(
+    'django.contrib.staticfiles',
+  ),
+  TEMPLATE_DIRS=(
+    os.path.join(BASE_DIR, 'templates'),
+  ),
+  STATICFILES_DIRS=(
+    os.path.join(BASE_DIR, 'static'),
+  ),
+  STATIC_URL='/static/',
 )
 
 from io import BytesIO
@@ -27,8 +40,11 @@ from PIL import Image, ImageDraw, ImageFont
 from django import forms
 from django.conf.urls import url
 from django.core.cache import cache
+from django.core.urlresolvers import reverse
 from django.core.wsgi import get_wsgi_application
 from django.http import HttpResponse, HttpResponseBadRequest
+from django.shortcuts import render
+from django.views.decorators.http import etag
 
 class ImageForm(forms.Form):
   """Form to validate requested placeholder image."""
@@ -61,8 +77,8 @@ class ImageForm(forms.Form):
           font = ImageFont.truetype("fonts/SourceSansPro-Regular.ttf", fontsize)
           textwidth, textheight = font.getsize(text)
 
-      texttop = (height / 2) - (textheight / 1.4)# - (height * 0.04)
-      textleft = (width / 2) - (textwidth / 1.9)
+      texttop = (height / 2) - (textheight / 1.45)# - (height * 0.04)
+      textleft = (width / 2) - (textwidth / 2)
 
       draw.text((textleft, texttop), text, font=font, fill=(150, 255, 255))
 
@@ -72,6 +88,11 @@ class ImageForm(forms.Form):
       cache.set(key, content, 60 * 60)
     return content
 
+def generate_etag(request, width, height):
+    content = 'Placeholder: {0} x {1}'.format(width, height)
+    return hashlib.sha1(content.encode('utf-8')).hexdigest()
+
+@etag(generate_etag)
 def placeholder(request, width, height):
   form = ImageForm({'height': height,'width': width})
   if form.is_valid():
@@ -81,7 +102,11 @@ def placeholder(request, width, height):
     return HttpResponseBadRequest('Invalid Image Request')
 
 def index(request):
-  return HttpResponse('Hello World')
+  example = reverse('placeholder', kwargs={'width':50, 'height':50})
+  context = {
+    'example': request.build_absolute_uri(example)
+  }
+  return render(request, 'home.html', context)
 
 urlpatterns = (
   url(r'^image/(?P<width>[0-9]+)x(?P<height>[0-9]+)/$', placeholder, name='placeholder'),
